@@ -1,0 +1,200 @@
+<html>
+<script>
+function HexTo10Str(e){return parseInt(e, 16)}
+function HexTo2Str(e){return parseInt(e, 16).toString(2)}
+function buf2hex(buffer) { // buffer is an ArrayBuffer
+  return [...new Uint8Array(buffer)]
+      .map(x => x.toString(16).padStart(2, '0'))
+      .join('');
+}
+var str = '';
+str = '';
+str = '';
+var t = [];
+function split_str(){
+	
+	t = [];
+	for(i=0;i<str.length;i+=2){
+		t.push(str.substr(i, 2))
+
+	}
+}
+//split_str();
+
+function interpret_data(){
+	let ManyFF = Math.pow(2, 16),
+	
+	ret = {
+		'packVoltage': HexTo10Str(t.slice(8, 12).reverse().join("")),
+		'batteryMiliVoltage': HexTo10Str(t.slice(12, 16).reverse().join("")),
+		'MOSFETTemperature': parseInt(t.slice(54, 56).reverse().join(""), 16),
+		'remianAh': HexTo10Str(t.slice(62, 64).reverse().join("")),
+		'FullChargeCapacityAh': HexTo10Str(t.slice(64, 66).reverse().join("")),
+		'protectState': t.slice(76, 80).reverse().join(""),
+		'heat': t.slice(68, 72).reverse().join(""),
+		'failureState': t.slice(80, 84).reverse().join("").slice(-3),
+		'equilibriumState': HexTo2Str(t.slice(84, 88).reverse().join("")),
+		'batteryState': t.slice(88, 90).reverse().join(""),
+		'SOC': HexTo10Str(t.slice(90, 92).reverse().join("")),
+		'SOH': HexTo10Str(t.slice(92, 96).reverse().join("")) + "%",
+		'dischargesCount': HexTo10Str(t.slice(96, 100).reverse().join("")),
+		'dischargesAHCount': HexTo10Str(t.slice(100, 104).reverse().join("")),
+	};
+	ret.CellTemp = parseInt(t.slice(52, 54).reverse().join(""), 16);
+	ret.CellTemp > ManyFF / 2 - 1 && (ret.CellTemp -= ManyFF)
+
+	const r = ~parseInt(t.slice(48, 52).reverse().join(""), 16);
+	ret.Current = r > 0 ? -r : parseInt(t.slice(48, 52).reverse().join(""), 16);
+
+	var cellsVoltages = [];
+	const a = t.slice(16, 48);
+	a.forEach(((e, t) => {
+		"00" != e && "00" != a[t + 1] && t % 2 == 0 && (cellsVoltages.push(HexTo10Str(a[t + 1] + e)));
+	}));
+	ret.cellsVoltages = cellsVoltages;
+	
+
+	return ret;
+}
+
+function getVersion(t) {//Should be used with command 16
+	const i = HexTo10Str(t.slice(0, 2).reverse().join("")) + "." + HexTo10Str(t.slice(2, 4).reverse().join("")) + "." + HexTo10Str(t.slice(4, 6).reverse().join("")),
+		n = HexTo10Str(t.slice(6, 8).reverse().join("")) + "年" + HexTo10Str(t[8]) + "月" + HexTo10Str(t[9]) + "日";
+	let o = t.join(""),
+		a = "";
+	for (let r = 0; r < o.length; r += 2) {
+		let e = parseInt(o.slice(r, r + 2), 16);
+		e >= 32 && e <= 126 && (a += String.fromCharCode(e))
+	}
+	return {
+		Version: i,
+		time: n,
+		hardwareVersion: a.split("-")[0],
+		functionalVersion: a.split("-")[1]
+	}
+}
+
+
+//var blue_device = 0;
+var write_characteristic = null;
+var read_characteristic = null;
+
+const commands = {
+	product_registration: new Uint8Array([0x00, 0x00, 0x04, 0x01, 0x01, 0x55, 0xAA, 0x05]),
+	disconnect_registration: new Uint8Array([0x00, 0x00, 0x04, 0x01, 0x02, 0x55, 0xAA, 0x06]),
+	query_battery_status: new Uint8Array([0x00, 0x00, 0x04, 0x01, 0x13, 0x55, 0xAA, 0x17]),
+	turn_on_charging: new Uint8Array([0x00, 0x00, 0x04, 0x01, 0x0a, 0x55, 0xAA, 0x0e]),
+	turn_off_charging: new Uint8Array([0x00, 0x00, 0x04, 0x01, 0x0b, 0x55, 0xAA, 0x0f]),
+	get_version: new Uint8Array([0x00, 0x00, 0x04, 0x01, 0x16, 0x55, 0xAA, 0x1a]),
+};
+
+/*
+"01": "00 00 04 01 01 55 AA 05",
+"02": "00 00 04 01 02 55 AA 06",
+13: "00 00 04 01 13 55 AA 17",
+"0A": "00 00 04 01 0A 55 AA 0E",
+"0B": "00 00 04 01 0B 55 AA 0F",
+"0C": "00 00 04 01 0C 55 AA 10",
+"0D": "00 00 04 01 0D 55 AA 11",
+16: "00 00 04 01 16 55 AA 1A",
+60: "00 00 04 01 60 55 AA 64",
+64: "休眠命令",
+10: "00 00 04 01 10 55 AA 14",
+43: "00 00 04 01 43 55 AA 47",
+41: "00 00 04 01 41 55 AA 45",
+40: "设置 SOH 及 SOC"
+
+Command descriptions:
+"01": "Product registration",
+"02": "Disconnect registration",
+13: "Query battery status",
+"0A": "Turn on charging tube",
+"0B": "Turn off charging tube",
+"0C": "Turn on discharge end",
+"0D": "Turn off discharge tube",
+16: "Get version",
+60: "Shutdown command",
+64: "Sleep command",
+10: "Get SN code",
+43: "Get nominal capacity",
+41: "Get SOH and SOC",
+40: "Set SOH and SOC"
+*/
+
+function deal_with_data(){
+
+	str = buf2hex(read_characteristic.value.buffer);
+	split_str();
+	dat = interpret_data();
+
+	document.getElementById("data").innerHTML = JSON.stringify(dat, null, 2);
+
+	//Wait another second and ask again
+	setTimeout(function(){
+		write_characteristic.writeValueWithResponse(commands.query_battery_status)
+	}, 1000)
+}
+
+function try_connect(){
+
+var main_service = "0000ffe0-0000-1000-8000-00805f9b34fb";
+let options = {
+  filters: [
+    { services: [main_service] },
+    { namePrefix: "LT-" },
+  ],
+};
+
+
+navigator.bluetooth
+  .requestDevice(options)
+  .then(device => {
+    console.log(`Name: ${device.name}`);
+    console.log('Connecting to GATT Server...');
+    return device.gatt.connect();
+  })
+  .then(server => {
+    console.log('Getting Service...');
+    return server.getPrimaryService(main_service);
+  })
+  .then(service => {
+    console.log('Getting Characteristics...');
+    // Get all characteristics.
+    return service.getCharacteristics();
+  })
+  .then(characteristics => {
+	characteristics.forEach((characteristic) => {
+		if(characteristic.uuid == "0000ffe2-0000-1000-8000-00805f9b34fb"){
+			write_characteristic = characteristic;
+		}
+		if(characteristic.uuid == "0000ffe1-0000-1000-8000-00805f9b34fb"){
+			read_characteristic = characteristic;
+		}
+	});
+	console.log({"write_characteristic": write_characteristic, 'read_characteristic': read_characteristic});
+	
+	console.log("start notification")
+	read_characteristic.startNotifications()
+	.then((thing) => {
+		read_characteristic.oncharacteristicvaluechanged = deal_with_data
+		
+		console.log("notifications active")
+	});
+	console.log("write value")
+	write_characteristic.writeValueWithResponse(commands.query_battery_status)
+	.then(() => {
+		console.log("Write done")
+	})
+  	.catch(error => {
+    		console.log('write error ' + error);
+  	})
+  })
+  .catch(error => {
+    console.log('Argh! ' + error);
+  });
+}
+
+</script>
+<button onclick="try_connect();">Try to connect</button>
+<pre id="data"></pre>
+<html>
