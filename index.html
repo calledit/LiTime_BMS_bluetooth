@@ -10,49 +10,63 @@ function buf2hex(buffer) { // buffer is an ArrayBuffer
 var str = '';
 str = '';
 str = '';
+var last_stats = null;
 var t = [];
+
+var stats_array = {
+	current: [],
+};
+var stats = {
+};
+
 function split_str(){
-	
 	t = [];
 	for(i=0;i<str.length;i+=2){
 		t.push(str.substr(i, 2))
-
 	}
 }
 //split_str();
 
 function interpret_data(){
-	let ManyFF = Math.pow(2, 16),
-	
+	let ManyFF = Math.pow(2, 16);
+
+	//Test
+	var vals = [];
+	for(var i=0;i<t.length;i+=4){
+		vals.push(HexTo10Str(t.slice(i, i+4).reverse().join("")))
+	}
+	//console.log(vals);
+
+	//real vals
 	ret = {
-		'packVoltage': HexTo10Str(t.slice(8, 12).reverse().join("")),
-		'batteryMiliVoltage': HexTo10Str(t.slice(12, 16).reverse().join("")),
-		'MOSFETTemperature': parseInt(t.slice(54, 56).reverse().join(""), 16),
-		'remianAh': HexTo10Str(t.slice(62, 64).reverse().join("")),
-		'FullChargeCapacityAh': HexTo10Str(t.slice(64, 66).reverse().join("")),
-		'protectState': t.slice(76, 80).reverse().join(""),
+		'messured_total_voltage': HexTo10Str(t.slice(8, 12).reverse().join(""))/1000,
+		'cells_added_together_voltage': HexTo10Str(t.slice(12, 16).reverse().join(""))/1000,
+		'mosfet_temp': parseInt(t.slice(54, 56).reverse().join(""), 16),
+		'remaining_amph': HexTo10Str(t.slice(62, 64).reverse().join(""))/100,
+		'full_charge_capacity_amph': HexTo10Str(t.slice(64, 66).reverse().join(""))/100,
+		'protection_state': t.slice(76, 80).reverse().join(""),
 		'heat': t.slice(68, 72).reverse().join(""),
-		'failureState': t.slice(80, 84).reverse().join("").slice(-3),
-		'equilibriumState': HexTo2Str(t.slice(84, 88).reverse().join("")),
-		'batteryState': t.slice(88, 90).reverse().join(""),
+		'failure_state': t.slice(80, 84).reverse().join("").slice(-3),
+		'is_balancing': HexTo2Str(t.slice(84, 88).reverse().join("")),//("1" or "0")
+		'battery_state': t.slice(88, 90).reverse().join(""),//charge disabled = "0004"
 		'SOC': HexTo10Str(t.slice(90, 92).reverse().join("")),
 		'SOH': HexTo10Str(t.slice(92, 96).reverse().join("")) + "%",
-		'dischargesCount': HexTo10Str(t.slice(96, 100).reverse().join("")),
-		'dischargesAHCount': HexTo10Str(t.slice(100, 104).reverse().join("")),
+		'discharges_count': HexTo10Str(t.slice(96, 100).reverse().join("")),
+		'discharges_amph_count': HexTo10Str(t.slice(100, 104).reverse().join("")),
 	};
-	ret.CellTemp = parseInt(t.slice(52, 54).reverse().join(""), 16);
-	ret.CellTemp > ManyFF / 2 - 1 && (ret.CellTemp -= ManyFF)
+	ret.cell_temp = parseInt(t.slice(52, 54).reverse().join(""), 16);
+	ret.cell_temp > ManyFF / 2 - 1 && (ret.CellTemp -= ManyFF)
 
 	const r = ~parseInt(t.slice(48, 52).reverse().join(""), 16);
-	ret.Current = r > 0 ? -r : parseInt(t.slice(48, 52).reverse().join(""), 16);
+	ret.current = (r > 0 ? -r : parseInt(t.slice(48, 52).reverse().join(""), 16))/1000;
 
 	var cellsVoltages = [];
 	const a = t.slice(16, 48);
 	a.forEach(((e, t) => {
-		"00" != e && "00" != a[t + 1] && t % 2 == 0 && (cellsVoltages.push(HexTo10Str(a[t + 1] + e)));
+		"00" != e && "00" != a[t + 1] && t % 2 == 0 && (cellsVoltages.push(HexTo10Str(a[t + 1] + e)/1000));
 	}));
 	ret.cellsVoltages = cellsVoltages;
-	
+
 
 	return ret;
 }
@@ -121,19 +135,62 @@ Command descriptions:
 40: "Set SOH and SOC"
 */
 
+var Last_remianAh = 0;
+var Last_remianAh_time = 0;
+var Last_remianAh_change_diff = 0;
+var Last_remianAh_time_diff = 0;
+
 function deal_with_data(){
 
 	str = buf2hex(read_characteristic.value.buffer);
+	console.log("last raw data:", str)
 	split_str();
-	dat = interpret_data();
+	last_stats = interpret_data();
 
-	document.getElementById("data").innerHTML = JSON.stringify(dat, null, 2);
+	stats_array.current.push(last_stats.current)
+
+	if(Last_remianAh != last_stats.remaining_amph){
+		n = Date.now()
+		Last_remianAh_time_diff = (n - Last_remianAh_time)/3600000;
+		Last_remianAh_change_diff = last_stats.remaining_amph - Last_remianAh;
+
+		Last_remianAh = last_stats.remaining_amph;
+		Last_remianAh_time = n;
+	}
+	stats.current_based_on_remaning = Last_remianAh_change_diff/Last_remianAh_time_diff;
+
+	if(stats_array.current.length>30){
+		stats_array.current.shift();
+	}
+
+	stats.internal_voltage_drop = last_stats.cells_added_together_voltage - last_stats.messured_total_voltage;
+	stats.internal_resitance = Math.abs(stats.current_based_on_remaning)/Math.abs(stats.internal_voltage_drop);
+
+	stats.watt = last_stats.messured_total_voltage * stats.current_based_on_remaning;
+
+	stats.current = 0;
+	stats_array.current.forEach((c) => {stats.current += c})
+	stats.current = (stats.current/stats_array.current.length);
+
+	document.getElementById("data").innerHTML = JSON.stringify(last_stats, null, 2);
+
+	document.getElementById("stats").innerHTML = JSON.stringify(stats, null, 2);
 
 	//Wait another second and ask again
 	setTimeout(function(){
 		write_characteristic.writeValueWithResponse(commands.query_battery_status)
 	}, 1000)
 }
+
+//test
+/*
+setTimeout(function(){
+str = ''
+split_str();
+last_stats = interpret_data();
+document.getElementById("data").innerHTML = JSON.stringify(last_stats, null, 2);
+},300);
+*/
 
 function try_connect(){
 
@@ -172,12 +229,12 @@ navigator.bluetooth
 		}
 	});
 	console.log({"write_characteristic": write_characteristic, 'read_characteristic': read_characteristic});
-	
+
 	console.log("start notification")
 	read_characteristic.startNotifications()
 	.then((thing) => {
 		read_characteristic.oncharacteristicvaluechanged = deal_with_data
-		
+
 		console.log("notifications active")
 	});
 	console.log("write value")
@@ -195,8 +252,10 @@ navigator.bluetooth
 }
 
 </script>
-
 <p>Only wokrs in bluetooth enabled browsers (in 2024 that includes Chrome and Edge)</p>
-<button onclick="try_connect();">Try to connect to battery</button>
+<button onclick="try_connect();">Try to connect</button>
+<p>data:</p>
 <pre id="data"></pre>
+<p>avg stats:</p>
+<pre id="stats"></pre>
 <html>
