@@ -71,7 +71,8 @@ function interpret_data(){
 	return ret;
 }
 
-function getVersion(t) {//Should be used with command 16
+//Should be used with commands.get_version
+function parse_version(t) {
 	const i = HexTo10Str(t.slice(0, 2).reverse().join("")) + "." + HexTo10Str(t.slice(2, 4).reverse().join("")) + "." + HexTo10Str(t.slice(4, 6).reverse().join("")),
 		n = HexTo10Str(t.slice(6, 8).reverse().join("")) + "年" + HexTo10Str(t[8]) + "月" + HexTo10Str(t[9]) + "日";
 	let o = t.join(""),
@@ -88,6 +89,17 @@ function getVersion(t) {//Should be used with command 16
 	}
 }
 
+//Should be used with commands.get_serial_number
+function parse_serial_number(t) {
+	let i = t.slice(8, t.length - 2).join("");
+	let o = "";
+	for (let n = 0; n < i.length; n += 2) {
+		let e = parseInt(i.slice(n, n + 2), 16);
+		e >= 32 && e <= 126 && (o += String.fromCharCode(e))
+	}
+	return o
+}
+
 
 //var blue_device = 0;
 var write_characteristic = null;
@@ -99,7 +111,10 @@ const commands = {
 	query_battery_status: new Uint8Array([0x00, 0x00, 0x04, 0x01, 0x13, 0x55, 0xAA, 0x17]),
 	turn_on_charging: new Uint8Array([0x00, 0x00, 0x04, 0x01, 0x0a, 0x55, 0xAA, 0x0e]),
 	turn_off_charging: new Uint8Array([0x00, 0x00, 0x04, 0x01, 0x0b, 0x55, 0xAA, 0x0f]),
+	turn_on_discharge: new Uint8Array([0x00, 0x00, 0x04, 0x01, 0x0c, 0x55, 0xAA, 0x0e]),
+	turn_off_discharge: new Uint8Array([0x00, 0x00, 0x04, 0x01, 0x0d, 0x55, 0xAA, 0x0f]),
 	get_version: new Uint8Array([0x00, 0x00, 0x04, 0x01, 0x16, 0x55, 0xAA, 0x1a]),
+	get_serial_number: new Uint8Array([0x00, 0x00, 0x04, 0x01, 0x10, 0x55, 0xAA, 0x14])
 };
 
 /*
