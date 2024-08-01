@@ -46,8 +46,9 @@ function interpret_data(){
 		'full_charge_capacity_amph': HexTo10Str(t.slice(64, 66).reverse().join(""))/100,
 		'protection_state': t.slice(76, 80).reverse().join(""),//Non all zeros means the BMS is "protecting" the battery somehow. (00000004 = Over Charge Protection, 00000020 = Over-discharge Protection, 00000040 = Charging Over Current Protection, 00000080 = Discharging Over Current Protection, 00000100 = High-temp Protection, 00000200 = High-temp Protection, 00000400 = Low-temp Protection, 00000800 = Low-temp Protection, 00004000 = Short Circuit Protection)
 		'heat': t.slice(68, 72).reverse().join(""),//discharge disabled due to app button = 00000080, heater_error = 00000002
+		'balance_memory_active': t.slice(72, 76).reverse().join(""),//activates when the battery has saved information about what cell it will balance
 		'failure_state': t.slice(80, 84).reverse().join("").slice(-3),//First numer/byte of the three regards cell_error, second number is also cell_error, third number is BMS_error
-		'is_balancing': HexTo2Str(t.slice(84, 88).reverse().join("")),//("1" or "0")
+		'is_balancing': HexTo2Str(t.slice(84, 88).reverse().join("")),//each bit represents a cell, if the bit = 1 that cell is balancing
 		'battery_state': t.slice(88, 90).reverse().join(""),//charge disabled = "0004", charging = "0001" (when charging active app will show estimated time untill fully charged), discharging/idle: "0000", unkown = "0002"
 		'SOC': HexTo10Str(t.slice(90, 92).reverse().join("")),
 		'SOH': HexTo10Str(t.slice(92, 96).reverse().join("")) + "%",
